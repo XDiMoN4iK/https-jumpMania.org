@@ -1,7 +1,7 @@
-// ÷òåíèå ðåêîðäà
+ï»¿// Ñ‡Ñ‚ÐµÐ½Ð¸Ðµ Ñ€ÐµÐºÐ¾Ñ€Ð´Ð°
 let highscore = Number(localStorage.getItem('highscore') || 0);
 
-// ñîõðàíåíèå ðåêîðäà
+// ÑÐ¾Ñ…Ñ€Ð°Ð½ÐµÐ½Ð¸Ðµ Ñ€ÐµÐºÐ¾Ñ€Ð´Ð°
 if (score > highscore) {
   highscore = score;
   localStorage.setItem('highscore', highscore);
