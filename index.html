@@ -74,9 +74,8 @@ function outlinedText(text,x,y,color,outline,font="20px Arial"){
   ctx.fillStyle=color;ctx.fillText(text,x,y);
 }
 
-/* Формула максимальной горизонтальной достижимости от вертикального разрыва */
+/* Вертикальный разрыв → максимальная горизонтальная достижимость */
 function maxReachForGap(vGap) {
-  // vy=-13, gravity=0.5/frame. Height(n) = 0.25n² - 12.75n. Peak=162.5.
   if (vGap <= 0) return 200;
   if (vGap >= 160) return 110;
   const disc = 162.5625 - vGap;
@@ -104,135 +103,31 @@ const saveProgress=v=>saveInt(PROG_KEY,v);
 const loadMinigameHS=m=>MG_KEY[m]?loadInt(MG_KEY[m]):0;
 const saveMinigameHS=(m,v)=>{if(MG_KEY[m])saveInt(MG_KEY[m],v);};
 
-/* ======================== КЭШИ ГРАФИКИ (для FPS) ======================== */
+/* ======================== ФОН ======================== */
 let _stars=null;
 function getStars(){if(!_stars){_stars=[];for(let i=0;i<70;i++)_stars.push({x:randInt(0,W),y:randInt(0,H),r:choice([1,1,1,2])});}return _stars;}
 
-let _sunSpriteCache=null;
-function getSunSprite(){
-  if(_sunSpriteCache)return _sunSpriteCache;
-  const size=110,cx=size/2,cy=size/2;
-  _sunSpriteCache=document.createElement("canvas");
-  _sunSpriteCache.width=size;_sunSpriteCache.height=size;
-  const g=_sunSpriteCache.getContext("2d");
-  // Гало
-  for(let i=20;i>0;i--){
-    const r=55*i/20,a=(4+6*(20-i)/20)/255;
-    g.fillStyle=`rgba(255,220,100,${a})`;
-    g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();
-  }
-  // Лучи (фиксированный угол)
-  g.strokeStyle="rgb(255,210,80)";g.lineWidth=3;
-  for(let i=0;i<12;i++){
-    const a=i*(Math.PI*2/12);
-    g.beginPath();
-    g.moveTo(cx+Math.cos(a)*30,cy+Math.sin(a)*30);
-    g.lineTo(cx+Math.cos(a)*42,cy+Math.sin(a)*42);
-    g.stroke();
-  }
-  // Центр
-  g.fillStyle="rgb(255,200,60)";
-  g.beginPath();g.arc(cx,cy,22,0,Math.PI*2);g.fill();
-  g.fillStyle="rgb(255,230,110)";
-  g.beginPath();g.arc(cx-4,cy-4,16,0,Math.PI*2);g.fill();
-  return _sunSpriteCache;
+function drawSun(){
+  const cx=W-52,cy=52,t=now()*0.001;
+  for(let i=0;i<12;i++){const a=t*0.6+i*(Math.PI*2/12);line(cx+Math.cos(a)*30,cy+Math.sin(a)*30,cx+Math.cos(a)*42,cy+Math.sin(a)*42,"rgb(255,210,80)",3);}
+  for(let i=20;i>0;i--){const r=55*i/20,a=(4+6*(20-i)/20)/255;ctx.fillStyle=`rgba(255,220,100,${a})`;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();}
+  circle(cx,cy,22,"rgb(255,200,60)");circle(cx-4,cy-4,16,"rgb(255,230,110)");
 }
-function drawSun(){ctx.drawImage(getSunSprite(),W-52-55,52-55);}
-
-function _renderMoonHalo(dim){
-  const R=240,size=R*2;
-  const c=document.createElement("canvas");
-  c.width=size;c.height=size;
-  const g=c.getContext("2d");
+function drawMoon(dim){
+  const cx=W-52,cy=52,R=240;
   for(let i=28;i>0;i--){
     const r=R*i/28;
     let a=(2+3*((28-i)>>1))/255;
-    if(dim) a*=0.15;
-    g.fillStyle=`rgba(200,215,245,${a})`;
-    g.beginPath();g.arc(R,R,r,0,Math.PI*2);g.fill();
+    if(dim)a*=0.15;
+    ctx.fillStyle=`rgba(200,215,245,${a})`;ctx.beginPath();ctx.arc(cx,cy,r,0,Math.PI*2);ctx.fill();
   }
-  return c;
-}
-let _moonHaloCache=null, _moonHaloDimCache=null;
-function drawMoon(dim){
-  const cx=W-52,cy=52;
-  if(!_moonHaloCache)_moonHaloCache=_renderMoonHalo(false);
-  if(!_moonHaloDimCache)_moonHaloDimCache=_renderMoonHalo(true);
-  ctx.drawImage(dim?_moonHaloDimCache:_moonHaloCache,cx-240,cy-240);
   circle(cx,cy,22,"rgb(235,235,215)");circle(cx-5,cy-4,16,"rgb(255,255,240)");
   circle(cx+7,cy+3,4,"rgb(200,200,180)");circle(cx-8,cy+5,3,"rgb(205,205,185)");circle(cx+2,cy-8,2,"rgb(210,210,190)");
 }
 function drawStarField(stars,t){
-  for(let i=0;i<stars.length;i++){
-    const s=stars[i];
-    const tw=0.6+0.4*Math.sin(t*1.5+i);
-    const a=clamp(120+120*tw,0,255)|0;
-    ctx.fillStyle=`rgb(${a},${a},${Math.min(255,a+40)})`;
-    ctx.fillRect(s.x,s.y,s.r,s.r);
-  }
+  for(let i=0;i<stars.length;i++){const s=stars[i],tw=0.6+0.4*Math.sin(t*1.5+i);const a=clamp(120+120*tw,0,255)|0;ctx.fillStyle=`rgb(${a},${a},${Math.min(255,a+40)})`;ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();}
 }
 function drawDarkBg(){ctx.fillStyle="rgb(10,12,26)";ctx.fillRect(0,0,W,H);drawStarField(getStars(),now()*0.001);drawMoon(true);}
-
-let _darkGradCache=null;
-function getDarkGradient(){
-  if(_darkGradCache)return _darkGradCache;
-  const size=400;
-  _darkGradCache=document.createElement("canvas");
-  _darkGradCache.width=size;_darkGradCache.height=size;
-  const g=_darkGradCache.getContext("2d");
-  const grd=g.createRadialGradient(size/2,size/2,size*0.25,size/2,size/2,size/2);
-  grd.addColorStop(0,"rgba(0,0,0,0)");
-  grd.addColorStop(0.7,"rgba(0,0,0,0.5)");
-  grd.addColorStop(1,"rgba(0,0,0,0.93)");
-  g.beginPath();g.arc(size/2,size/2,size/2,0,Math.PI*2);g.clip();
-  g.fillStyle=grd;g.fillRect(0,0,size,size);
-  return _darkGradCache;
-}
-
-let _dangerGlowCache=null;
-function getDangerGlowSprite(){
-  if(_dangerGlowCache)return _dangerGlowCache;
-  const size=140;
-  _dangerGlowCache=document.createElement("canvas");
-  _dangerGlowCache.width=size;_dangerGlowCache.height=size;
-  const g=_dangerGlowCache.getContext("2d");
-  const grd=g.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
-  grd.addColorStop(0,"rgba(150,220,255,0.22)");
-  grd.addColorStop(0.6,"rgba(130,200,240,0.08)");
-  grd.addColorStop(1,"rgba(150,220,255,0)");
-  g.fillStyle=grd;
-  g.fillRect(0,0,size,size);
-  return _dangerGlowCache;
-}
-
-// Кэш "земляной" платформы по ширине
-const _groundCache=new Map();
-function getGroundSprite(width){
-  if(_groundCache.has(width))return _groundCache.get(width);
-  const c=document.createElement("canvas");
-  c.width=width;c.height=15;
-  const g=c.getContext("2d");
-  g.fillStyle="rgb(115,75,45)";g.fillRect(0,0,width,15);
-  g.fillStyle="rgb(60,195,60)";g.fillRect(0,0,width,7);
-  g.strokeStyle="rgb(35,130,35)";g.lineWidth=1;
-  g.beginPath();g.moveTo(2,7);g.lineTo(width-2,7);g.stroke();
-  g.strokeStyle="rgb(90,230,90)";
-  for(let i=0;i<width;i+=5){
-    const bx=i+2;
-    const gh=2+(Math.floor(i/5)%3);
-    g.beginPath();g.moveTo(bx,1);g.lineTo(bx,1-gh);g.stroke();
-  }
-  g.fillStyle="rgb(90,55,30)";
-  for(let i=0;i<width;i+=12){
-    const dx=i+6;
-    const dy=10+(Math.floor(i/12)%2);
-    g.fillRect(dx,dy,3,2);
-  }
-  _groundCache.set(width,c);
-  return c;
-}
-
-/* ======================== ОБЛАКА, СНЕЖИНКИ, ИКОНКИ ======================== */
 function drawCloudShape(x,y,w,h,c){
   const puffs=[[w*0.15,h*0.65,h*0.45],[w*0.35,h*0.40,h*0.55],[w*0.55,h*0.30,h*0.65],[w*0.75,h*0.40,h*0.55],[w*0.90,h*0.65,h*0.45],[w*0.25,h*0.55,h*0.55],[w*0.65,h*0.55,h*0.55]];
   ctx.fillStyle=c;ctx.fillRect(x+4,y+h/2,w-8,h/2);
@@ -407,7 +302,6 @@ class Platform{
     this.vanishFade=null;this.fuelTaken=false;
     this.baseX=x;this.prevX=x;this.moveRange=0;this.movePhase=0;this.moveSpeed=0;
     this.gearAngle=type==="moving"?rand(0,Math.PI*2):0;
-    this._arcSeedCached=-1;this._arcPoints=null;
     if(type==="moving"){this.movePhase=rand(0,Math.PI*2);this.moveSpeed=BASE_MOVING_SPEED*moveSpeedMult;}
   }
   springHitRect(){return {x:this.x+this.springX-this.springHitPad,y:this.y-16,w:this.springW+this.springHitPad*2,h:this.h+16};}
@@ -443,7 +337,11 @@ class Platform{
     }
   }
   drawGround(){
-    ctx.drawImage(getGroundSprite(this.w),this.x,this.y);
+    fillRect(this.x,this.y,this.w,this.h,"rgb(115,75,45)");
+    fillRect(this.x,this.y,this.w,7,"rgb(60,195,60)");
+    line(this.x+2,this.y+7,this.x+this.w-2,this.y+7,"rgb(35,130,35)",1);
+    for(let i=0;i<this.w;i+=5){const bx=this.x+i+2,gh=2+((i/5|0)%3);line(bx,this.y+1,bx,this.y+1-gh,"rgb(90,230,90)",1);}
+    for(let i=0;i<this.w;i+=12){const dx=this.x+i+6,dy=this.y+10+((i/12|0)%2);fillRect(dx,dy,3,2,"rgb(90,55,30)");}
   }
   drawSpring(){
     const sx=this.x+this.springX,cx=sx+this.springW/2;
@@ -472,12 +370,7 @@ class Platform{
     poly([[cx,cy-6],[cx-6,cy+4],[cx+6,cy+4]],"rgba(230,240,255,0.35)","rgba(200,230,255,0.78)",1);
     fillRect(cx-1,cy-3,2,4,"rgb(230,240,255)");fillRect(cx-1,cy+2,2,1,"rgb(230,240,255)");
     const seed=Math.floor(this.electricT/70);
-    const fullSeed=seed*41+(this.x|0);
-    if(this._arcSeedCached!==fullSeed||this._arcPoints===null){
-      this._arcSeedCached=fullSeed;
-      this._arcPoints=this._genWrapPoints(RING_OFFSET,fullSeed);
-    }
-    const pts=this._arcPoints;
+    const pts=this._genWrapPoints(RING_OFFSET,seed*41+(this.x|0));
     ctx.strokeStyle="rgba(150,220,255,0.43)";ctx.lineWidth=7;
     ctx.beginPath();ctx.moveTo(this.x+pts[0][0],this.y+pts[0][1]);
     for(const p of pts)ctx.lineTo(this.x+p[0],this.y+p[1]);ctx.stroke();
@@ -654,17 +547,13 @@ class Frog{
     }else if(this.deathKind==="fall"){this.knockbackVy+=0.8*dt/16;this.y+=this.knockbackVy*dt/16;}
   }
   drawBody(x,y,w,h){
-    // Задние лапы
     ctx.fillStyle="rgb(25,130,25)";
     ctx.beginPath();ctx.ellipse(x+5,y+h-3,6,4,0,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.ellipse(x+w-5,y+h-3,6,4,0,0,Math.PI*2);ctx.fill();
-    // Тело
     ctx.fillStyle=rgb(GREEN);
     ctx.beginPath();ctx.ellipse(x+w/2,y+h/2+1,w/2-1,h/2-2,0,0,Math.PI*2);ctx.fill();
-    // Живот
     ctx.fillStyle="rgb(120,225,120)";
     ctx.beginPath();ctx.ellipse(x+w/2,y+h/2+7,w/2-7,h/2-9,0,0,Math.PI*2);ctx.fill();
-    // Глаза
     circle(x+8,y+4,6,rgb(GREEN));
     circle(x+w-8,y+4,6,rgb(GREEN));
     circle(x+8,y+4,4,"rgb(255,255,255)");
@@ -673,11 +562,9 @@ class Frog{
     circle(x+w-9,y+5,2,"rgb(0,0,0)");
     circle(x+10,y+4,1,"rgb(255,255,255)");
     circle(x+w-8,y+4,1,"rgb(255,255,255)");
-    // Передние лапы
     ctx.fillStyle="rgb(50,180,50)";
     ctx.beginPath();ctx.ellipse(x+10,y+h-1,4,2,0,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.ellipse(x+w-10,y+h-1,4,2,0,0,Math.PI*2);ctx.fill();
-    // Улыбка плоская
     ctx.strokeStyle="rgb(20,90,20)";ctx.lineWidth=2;
     ctx.beginPath();
     ctx.moveTo(x+w/2-7, y+17);
@@ -902,13 +789,12 @@ RunScene.prototype.init=function(){
   this.nextGapReduced=false;this.nextMustBeNormal=false;
 
   const self=this;
-  this.spawnInit=function(x,y,type,anchorC){
+  this.spawnInit=function(x,y,type,anchorC,vGap){
     if(type==="moving"){
       const need=MOVING_RANGE_MAX,avail=W-70;
       if(avail<2*need)self.platforms.push(new Platform(x,y,"normal"));
       else{
-        // baseX должен быть в пределах достижимости от anchorC
-        const maxR = anchorC!==undefined ? maxReachForGap(70) : 200;
+        const maxR = anchorC!==undefined ? maxReachForGap(vGap||70) : 200;
         const minB = Math.max(need, anchorC-maxR-35+need);
         const maxB = Math.min(avail-need, anchorC+maxR-35-need);
         let base;
@@ -923,7 +809,7 @@ RunScene.prototype.init=function(){
       }
     }else self.platforms.push(new Platform(x,y,type));
     if(type==="cloud"&&anchorC!==undefined){
-      const maxR = maxReachForGap(70);
+      const maxR = maxReachForGap(vGap||70);
       for(const off of [90,-90,45,-45]){
         const sx=x+off;
         if(sx<0||sx+70>W)continue;
@@ -941,12 +827,16 @@ RunScene.prototype.init=function(){
   this.randomType=function(){
     if(self.levelNum===6)return ["break",false];
     if(self.infiniteMode){
+      // Пороги как в мини-играх: типы не появляются до определённого счёта
       if(Math.random()<freezeReplaceChance(self.score))return ["freeze",true];
       if(self.score>=MOVING_START_SCORE&&Math.random()<MOVING_REPLACE_CHANCE)return ["moving",false];
+      const brkChance=(self.score>=500)?self.breakChance:0;
+      const sprChance=(self.score>=1500)?self.springChance:0;
+      const cldChance=(self.score>=1500)?self.cloudChance:0;
       const r=Math.random();
-      if(r<self.cloudChance)return ["cloud",false];
-      if(r<self.cloudChance+self.breakChance)return ["break",false];
-      if(r<self.cloudChance+self.breakChance+self.springChance)return ["spring",false];
+      if(r<cldChance)return ["cloud",false];
+      if(r<cldChance+brkChance)return ["break",false];
+      if(r<cldChance+brkChance+sprChance)return ["spring",false];
       return ["normal",false];
     }else{
       if(self.levelFreezeReplaceChance>0&&Math.random()<self.levelFreezeReplaceChance)return ["freeze",true];
@@ -966,7 +856,7 @@ RunScene.prototype.init=function(){
       const x=pickReachableX(prevC, 70);
       prevC=x+35;
       const [type]=self.randomType();
-      self.spawnInit(x,y,type,prevC);
+      self.spawnInit(x,y,type,prevC,70);
     }
   };
   if(this.tBrk){
@@ -992,7 +882,6 @@ RunScene.prototype.init=function(){
   }else if(this.tFreeze){
     this.platforms.push(new Platform(W/2-35,H-230,"freeze"));addTutorialFill();
   }else if(this.tDanger){
-    // Danger слева, safe прямо над стартом
     this.platforms.push(new Platform(0,H-230,"danger"));
     this.platforms.push(new Platform(W/2-35,H-230,"normal"));
     addTutorialFill();
@@ -1003,18 +892,29 @@ RunScene.prototype.init=function(){
     const f=triangleFrac(mp.movePhase);mp.x=mp.baseX+(f*2-1)*mp.moveRange;mp.prevX=mp.x;
     this.platforms.push(mp);addTutorialFill();
   }else if(this.tSpike){
-    // Spike слева, safe прямо над стартом
     this.platforms.push(new Platform(0,H-230,"spike"));
     this.platforms.push(new Platform(W/2-35,H-230,"normal"));
     addTutorialFill();
-  }else{
+  }else if(this.infiniteMode){
+    // Бесконечный режим: все стартовые платформы — normal (как в Python main())
     let prevC=W/2;
     for(let i=0;i<8;i++){
       const y=H-180-i*70;
-      const x=pickReachableX(prevC, 70);
+      const vGap=(i===0)?80:70;
+      const x=pickReachableX(prevC, vGap);
       prevC=x+35;
-      const [type]=this.randomType();
-      this.spawnInit(x,y,type,prevC);
+      self.platforms.push(new Platform(x,y,"normal"));
+    }
+  }else{
+    // Обычный уровень: стартовые платформы по конфигу уровня
+    let prevC=W/2;
+    for(let i=0;i<8;i++){
+      const y=H-180-i*70;
+      const vGap=(i===0)?80:70;
+      const x=pickReachableX(prevC, vGap);
+      prevC=x+35;
+      const [type]=self.randomType();
+      self.spawnInit(x,y,type,prevC,vGap);
     }
   }
 
@@ -1393,12 +1293,10 @@ RunScene.prototype.draw=function(){
     showText(`Ваш счет: ${this.score} м`,W/2,215,"rgb(0,0,0)","20px Arial");
     let barY, secY, btnY, freeY;
     if(this.levelNum===0){
-      // Бесконечный — оставляем рекорд
       showText(`Лучший рекорд: ${Math.max(highScore,this.score)} м`,W/2,250,"rgb(255,165,0)","20px Arial");
       showText("Хотите ли возродиться?",W/2,290,"rgb(0,0,0)","20px Arial");
       barY=320; secY=353; btnY=400; freeY=435;
     }else{
-      // Уровни — без рекорда, компактнее
       showText("Хотите ли возродиться?",W/2,255,"rgb(0,0,0)","20px Arial");
       barY=285; secY=318; btnY=365; freeY=400;
     }
@@ -1469,7 +1367,8 @@ MinigameScene.prototype.init=function(){
   let prevC=W/2;
   for(let i=0;i<8;i++){
     const y=H-180-i*70;
-    const x=pickReachableX(prevC, 70);
+    const vGap=(i===0)?80:70;
+    const x=pickReachableX(prevC, vGap);
     prevC=x+35;
     this.platforms.push(new Platform(x,y,"normal"));
   }
@@ -1837,34 +1736,40 @@ MinigameScene.prototype._drawWorld=function(){
     for(let i=0;i<12;i++){const bx=(i*53+Math.floor(tt*30))%W;const by=top+10+Math.floor(8*Math.sin(tt*2+i));circle(bx,by,3,"rgba(255,200,80,0.78)");}
   }
   if(this.isDark){
-    // 1. Основная темнота через 4 прямоугольника (без evenodd)
     const fuel=clamp(this.frog.lampFuelSeconds/MG_DARK_FUEL_SECONDS,0,1);
     if(fuel>0){
       const [lcx,lcy]=this.frog.getLampPos();
       const radius=MG_DARK_MIN_RADIUS+(MG_DARK_FUEL_FULL_RADIUS-MG_DARK_MIN_RADIUS)*fuel;
       const t=now()*0.004;
       const rw=radius*(1+0.035*Math.sin(t*1.6));
-      // Градиент лампы (кэшированный)
-      ctx.drawImage(getDarkGradient(),lcx-rw,lcy-rw,rw*2,rw*2);
-      // Тёмные прямоугольники вокруг квадрата лампы
-      const darkCol="rgba(0,0,0,0.93)";
-      ctx.fillStyle=darkCol;
-      if(lcy-rw>0) ctx.fillRect(0,0,W,lcy-rw);
-      if(lcy+rw<H) ctx.fillRect(0,lcy+rw,W,H-(lcy+rw));
-      if(lcx-rw>0) ctx.fillRect(0,Math.max(0,lcy-rw),lcx-rw,Math.min(H,rw*2));
-      if(lcx+rw<W) ctx.fillRect(lcx+rw,Math.max(0,lcy-rw),W-(lcx+rw),Math.min(H,rw*2));
+      const g=ctx.createRadialGradient(lcx,lcy,rw*0.5,lcx,lcy,rw);
+      g.addColorStop(0,"rgba(0,0,0,0)");
+      g.addColorStop(0.7,"rgba(0,0,0,0.5)");
+      g.addColorStop(1,"rgba(0,0,0,0.93)");
+      ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+      ctx.beginPath();
+      ctx.rect(0,0,W,H);
+      ctx.arc(lcx,lcy,rw,0,Math.PI*2,true);
+      ctx.fillStyle="rgba(0,0,0,0.93)";
+      ctx.fill("evenodd");
     }else{
       ctx.fillStyle="rgba(0,0,0,0.96)";ctx.fillRect(0,0,W,H);
     }
-    // 2. Звёзды и луна
     drawStarField(getStars(),now()*0.001);
     drawMoon(true);
-    // 3. Слабый свет вокруг электрических платформ (поверх темноты)
-    const glow=getDangerGlowSprite();
+    // Слабый свет вокруг электрических платформ
     for(const p of this.platforms){
       if(p.type==="danger"&&!p.broken){
         const cx=p.x+p.w/2,cy=p.y+p.h/2;
-        ctx.drawImage(glow,cx-70,cy-70);
+        const R=70;
+        const t2=now()*0.004;
+        const Rw=R*(1+0.06*Math.sin(t2*2.3)+0.03*Math.sin(t2*4.7));
+        const g2=ctx.createRadialGradient(cx,cy,0,cx,cy,Rw);
+        g2.addColorStop(0,"rgba(150,220,255,0.22)");
+        g2.addColorStop(0.6,"rgba(130,200,240,0.08)");
+        g2.addColorStop(1,"rgba(150,220,255,0)");
+        ctx.fillStyle=g2;
+        ctx.fillRect(cx-Rw,cy-Rw,Rw*2,Rw*2);
       }
     }
   }
