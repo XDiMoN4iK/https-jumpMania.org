@@ -650,6 +650,15 @@ function codeToAction(code){
   if(code==="KeyW"||code==="ArrowUp")return "jump";
   return null;
 }
+  /* Клавиша способности: физические R/K (любая раскладка)
+   + страховка по символу: русская К, английская K, английская R */
+function isAbilityKey(e){
+  if(e.code === "KeyR" || e.code === "KeyK") return true;
+  const k = e.key;
+  return k === "к" || k === "К"     // русская К
+      || k === "k" || k === "K"     // английская K
+      || k === "r" || k === "R";    // английская R (оставляем, как было)
+}
 window.addEventListener("keydown",e=>{
   const action=codeToAction(e.code);
   if(action){keys[action]=true;e.preventDefault();}
@@ -950,119 +959,121 @@ RunScene.prototype.computeScore=function(fy,rise){return Math.max(0,Math.floor((
 RunScene.prototype.dangerChanceFor=function(){if(!this.dangerActive)return 0;if(this.infiniteMode)return dangerChance(this.score);return this.dangerBonus>0?this.dangerBonus:FLAT_DANGER_CHANCE;};
 RunScene.prototype.spikeChanceFor=function(){if(!this.spikeActive)return 0;if(this.infiniteMode)return spikeChance(this.score);return this.spikeBonus>0?this.spikeBonus:FLAT_SPIKE_CHANCE;};
 
-RunScene.prototype.spawnLevelPlatform=function(top){
+RunScene.prototype.spawnLevelPlatform=function(){
+  // 1. Один фильтр — один top/anchor (как в мини-играх)
+  const alive=this.platforms.filter(p=>!((p.type==="break"&&p.broken)||(p.type==="cloud"&&p.broken)||p.type==="finish"));
+  if(!alive.length)return;                       // нечего спавнить
+  const top=Math.min(...alive.map(p=>p.y));
+  const anchor=alive.reduce((a,b)=>a.y<b.y?a:b); // тот же top
+  const anchorC=anchor.x+anchor.w/2;
+
   let mn,mx;
   if(this.infiniteMode){[mn,mx]=platformGapRange(this.score);}
   else{mn=Math.floor(65*this.gapMult);mx=Math.floor(85*this.gapMult);}
   if(this.nextGapReduced){mn=Math.floor(mn*0.45);mx=Math.floor(mx*0.55);mx=Math.min(mx,50);mn=Math.min(mn,mx-5);this.nextGapReduced=false;}
+
   const padX=40,padY=40;
   const fr={x:this.finishPlat.x-padX,y:this.finishPlat.y-padY,w:this.finishPlat.w+2*padX,h:this.finishPlat.h+2*padY};
-  let anchor=null;
-  for(const p of this.platforms){if(p.type==="finish"||p.broken)continue;if(!anchor||p.y<anchor.y)anchor=p;}
-  const anchorC=anchor?anchor.x+anchor.w/2:W/2;
-  for(let k=0;k<30;k++){
-    const vGap=randInt(mn,mx);
-    const y=top-vGap;
-    if(y<=this.finishPlat.y+padY)return top;
-    let x=pickReachableX(anchorC, vGap);
-    if(x<fr.x+fr.w&&x+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y){
-      const lm=fr.x-70,rm=fr.x+fr.w,opts=[];
-      if(lm>=0)opts.push([0,lm]);if(rm<=W-70)opts.push([rm,W-70]);
-      if(!opts.length)return top;
-      const [a,b]=choice(opts);x=randInt(a,b);
-    }
-    let type,wasReplace=false;
-    if(this.nextMustBeNormal){type="normal";this.nextMustBeNormal=false;}
-    else{[type,wasReplace]=this.randomType();}
-    let mr=null,mb=null;
-    if(type==="moving"){
-      const need=MOVING_RANGE_MAX,avail=W-70;
-      if(avail<2*need)type="normal";
-      else{
-        const maxR=maxReachForGap(vGap);
-        const minB=Math.max(need, anchorC-maxR-35+need);
-        const maxB=Math.min(avail-need, anchorC+maxR-35-need);
-        if(minB<=maxB){mb=randInt(minB,maxB);mr=randInt(MOVING_RANGE_MIN,Math.min(MOVING_RANGE_MAX,mb,avail-mb));}
-        else type="normal";
-      }
-    }
-    const np=new Platform(x,y,type,movingSpeedMult(this.score));
-    if(type==="moving"){np.baseX=mb;np.moveRange=mr;np.movePhase=choice([Math.PI*0.3,Math.PI*0.7,Math.PI*1.3,Math.PI*1.7]);const f=triangleFrac(np.movePhase);np.x=np.baseX+(f*2-1)*np.moveRange;np.prevX=np.x;}
-    this.platforms.push(np);
-    if(wasReplace){this.nextGapReduced=true;this.nextMustBeNormal=true;}
-    if(type==="cloud"){
+
+  const vGap=randInt(mn,mx);
+  const y=top-vGap;
+  if(y<=this.finishPlat.y+padY)return;
+
+  let x=pickReachableX(anchorC, vGap);
+  if(x<fr.x+fr.w&&x+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y){
+    const lm=fr.x-70,rm=fr.x+fr.w,opts=[];
+    if(lm>=0)opts.push([0,lm]);if(rm<=W-70)opts.push([rm,W-70]);
+    if(!opts.length)return;
+    const [a,b]=choice(opts);x=randInt(a,b);
+  }
+  let type,wasReplace=false;
+  if(this.nextMustBeNormal){type="normal";this.nextMustBeNormal=false;}
+  else{[type,wasReplace]=this.randomType();}
+  let mr=null,mb=null;
+  if(type==="moving"){
+    const need=MOVING_RANGE_MAX,avail=W-70;
+    if(avail<2*need)type="normal";
+    else{
       const maxR=maxReachForGap(vGap);
-      let supportAdded=false;
-      for(const off of [90,-90,45,-45]){
-        const sx=x+off;
-        if(sx<0||sx+70>W)continue;
-        const supC=sx+35;
-        if(Math.abs(supC-anchorC)<=maxR){
-          if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y)){
-            this.platforms.push(new Platform(sx,y,"normal"));
-            supportAdded=true;
-            break;
-          }
+      const minB=Math.max(need, anchorC-maxR-35+need);
+      const maxB=Math.min(avail-need, anchorC+maxR-35-need);
+      if(minB<=maxB){mb=randInt(minB,maxB);mr=randInt(MOVING_RANGE_MIN,Math.min(MOVING_RANGE_MAX,mb,avail-mb));}
+      else type="normal";
+    }
+  }
+  const np=new Platform(x,y,type,movingSpeedMult(this.score));
+  if(type==="moving"){np.baseX=mb;np.moveRange=mr;np.movePhase=choice([Math.PI*0.3,Math.PI*0.7,Math.PI*1.3,Math.PI*1.7]);const f=triangleFrac(np.movePhase);np.x=np.baseX+(f*2-1)*np.moveRange;np.prevX=np.x;}
+  this.platforms.push(np);
+  if(wasReplace){this.nextGapReduced=true;this.nextMustBeNormal=true;}
+  if(type==="cloud"){
+    const maxR=maxReachForGap(vGap);
+    let supportAdded=false;
+    for(const off of [90,-90,45,-45]){
+      const sx=x+off;
+      if(sx<0||sx+70>W)continue;
+      const supC=sx+35;
+      if(Math.abs(supC-anchorC)<=maxR){
+        if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y)){
+          this.platforms.push(new Platform(sx,y,"normal"));
+          supportAdded=true;
+          break;
         }
       }
-      if(!supportAdded){
-        let sx=x+90;if(sx+70>W)sx=x-90;if(sx<0)sx=0;
-        if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y))this.platforms.push(new Platform(sx,y,"normal"));
-      }
     }
-    // freeze
-    const doFrz=this.infiniteMode?(this.score>=2000&&Math.random()<0.18):(this.freezeChance>0&&Math.random()<this.freezeChance);
-    if(doFrz){
+    if(!supportAdded){
+      let sx=x+90;if(sx+70>W)sx=x-90;if(sx<0)sx=0;
+      if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y))this.platforms.push(new Platform(sx,y,"normal"));
+    }
+  }
+  // freeze
+  const doFrz=this.infiniteMode?(this.score>=2000&&Math.random()<0.18):(this.freezeChance>0&&Math.random()<this.freezeChance);
+  if(doFrz){
+    const sy=y-randInt(35,50);
+    if(sy>this.finishPlat.y+padY){
+      let sx=null;
+      for(let t=0;t<20;t++){
+        const cx=randInt(0,W-70);
+        if(cx<fr.x+fr.w&&cx+70>fr.x&&sy<fr.y+fr.h&&sy+15>fr.y)continue;
+        let ov=false;for(const p of this.platforms){if(p.broken)continue;if(!overlapsVertical(p,sy,15,4))continue;if(cx<p.x+p.w&&cx+70>p.x){ov=true;break;}}
+        if(!ov){sx=cx;break;}
+      }
+      if(sx===null)sx=randInt(0,W-70);
+      this.platforms.push(new Platform(sx,sy,"freeze"));
+    }
+  }
+  // danger
+  const dC=this.dangerChanceFor();
+  if(dC>0&&countType(this.platforms,"danger")<MAX_DANGER_PLATFORMS&&Math.random()<dC){
+    const sy=y-randInt(35,50);
+    if(sy>this.finishPlat.y+padY){
+      let dx=null;
+      for(let t=0;t<20;t++){
+        const cx=randInt(0,W-70);
+        if(cx<fr.x+fr.w&&cx+70>fr.x&&sy<fr.y+fr.h&&sy+15>fr.y)continue;
+        let ov=false;for(const p of this.platforms){if(p.broken)continue;if(!overlapsVertical(p,sy,15,DANGER_SAFE_GAP))continue;if(cx<p.x+p.w&&cx+70>p.x){ov=true;break;}}
+        if(!ov&&isDangerSafe(cx,sy,this.platforms)){dx=cx;break;}
+      }
+      if(dx!==null)this.platforms.push(new Platform(dx,sy,"danger"));
+    }
+  }
+  // spike
+  if(this.spikeActive){
+    const sC=this.spikeChanceFor();
+    if(sC>0&&countType(this.platforms,"spike")<MAX_DANGER_PLATFORMS&&Math.random()<sC){
       const sy=y-randInt(35,50);
       if(sy>this.finishPlat.y+padY){
         let sx=null;
         for(let t=0;t<20;t++){
           const cx=randInt(0,W-70);
           if(cx<fr.x+fr.w&&cx+70>fr.x&&sy<fr.y+fr.h&&sy+15>fr.y)continue;
-          let ov=false;for(const p of this.platforms){if(p.broken)continue;if(!overlapsVertical(p,sy,15,4))continue;if(cx<p.x+p.w&&cx+70>p.x){ov=true;break;}}
-          if(!ov){sx=cx;break;}
-        }
-        if(sx===null)sx=randInt(0,W-70);
-        this.platforms.push(new Platform(sx,sy,"freeze"));
-      }
-    }
-    // danger
-    const dC=this.dangerChanceFor();
-    if(dC>0&&countType(this.platforms,"danger")<MAX_DANGER_PLATFORMS&&Math.random()<dC){
-      const sy=y-randInt(35,50);
-      if(sy>this.finishPlat.y+padY){
-        let dx=null;
-        for(let t=0;t<20;t++){
-          const cx=randInt(0,W-70);
-          if(cx<fr.x+fr.w&&cx+70>fr.x&&sy<fr.y+fr.h&&sy+15>fr.y)continue;
           let ov=false;for(const p of this.platforms){if(p.broken)continue;if(!overlapsVertical(p,sy,15,DANGER_SAFE_GAP))continue;if(cx<p.x+p.w&&cx+70>p.x){ov=true;break;}}
-          if(!ov&&isDangerSafe(cx,sy,this.platforms)){dx=cx;break;}
+          if(!ov&&isDangerSafe(cx,sy,this.platforms)){sx=cx;break;}
         }
-        if(dx!==null)this.platforms.push(new Platform(dx,sy,"danger"));
+        if(sx!==null)this.platforms.push(new Platform(sx,sy,"spike"));
       }
     }
-    // spike
-    if(this.spikeActive){
-      const sC=this.spikeChanceFor();
-      if(sC>0&&countType(this.platforms,"spike")<MAX_DANGER_PLATFORMS&&Math.random()<sC){
-        const sy=y-randInt(35,50);
-        if(sy>this.finishPlat.y+padY){
-          let sx=null;
-          for(let t=0;t<20;t++){
-            const cx=randInt(0,W-70);
-            if(cx<fr.x+fr.w&&cx+70>fr.x&&sy<fr.y+fr.h&&sy+15>fr.y)continue;
-            let ov=false;for(const p of this.platforms){if(p.broken)continue;if(!overlapsVertical(p,sy,15,DANGER_SAFE_GAP))continue;if(cx<p.x+p.w&&cx+70>p.x){ov=true;break;}}
-            if(!ov&&isDangerSafe(cx,sy,this.platforms)){sx=cx;break;}
-          }
-          if(sx!==null)this.platforms.push(new Platform(sx,sy,"spike"));
-        }
-      }
-    }
-    return y;
   }
-  return top;
 };
-
 RunScene.prototype.keydown=function(e){
   if(e.code==="Escape"){
     if(this.state==="play"){this.paused=!this.paused;for(const b of this.pauseButtons)b.reset();}
@@ -1233,11 +1244,10 @@ RunScene.prototype._updatePlay=function(dt){
   if(this.score>this.targetScore)this.score=this.targetScore;
   for(const c of this.bgClouds)c.update(dy,this.bgClouds);
 
-  let top=Math.min(...this.platforms.filter(pl=>!((pl.type==="break"&&pl.broken)||(pl.type==="cloud"&&pl.broken)||pl.type==="finish")).map(pl=>pl.y),-100);
-  for(let i=this.platforms.length-1;i>=0;i--){
-    const p=this.platforms[i];
-    if(p.type==="finish")continue;
-    if(p.y>H+20){this.platforms.splice(i,1);top=this.spawnLevelPlatform(top);continue;}
+for(let i=this.platforms.length-1;i>=0;i--){
+  const p=this.platforms[i];
+  if(p.type==="finish")continue;
+  if(p.y>H+20){this.platforms.splice(i,1);this.spawnLevelPlatform();continue;}
     if(p.type==="cloud"&&p.broken&&p.particles.length===0){this.platforms.splice(i,1);top=this.spawnLevelPlatform(top);continue;}
     if(p.type==="break"&&p.broken&&p.alpha<=0){this.platforms.splice(i,1);top=this.spawnLevelPlatform(top);continue;}
   }
@@ -1271,7 +1281,7 @@ RunScene.prototype.draw=function(){
     const abilityY=55;
     if(frog.abilityActive)showText(`Двойной прыжок: ${(frog.abilityTimer/1000).toFixed(1)}с`,10,abilityY,"rgb(255,165,0)","20px Arial",false);
     else if(frog.cooldown>0)showText(`Перезарядка К: ${(frog.cooldown/1000).toFixed(1)}с`,10,abilityY,"rgb(0,0,0)","20px Arial",false);
-    else showText("Способность: К",10,abilityY,"rgb(0,0,0)","20px Arial",false);
+    else showText("Способность: R",10,abilityY,"rgb(0,0,0)","20px Arial",false);
   }else{
     showText(`Высота: ${this.score} / ${this.targetScore} м`,10,10,"rgb(0,0,0)","20px Arial",false);
     if(frog.abilityActive)showText(`Двойной прыжок: ${(frog.abilityTimer/1000).toFixed(1)}с`,10,30,"rgb(255,165,0)","20px Arial",false);
@@ -1815,7 +1825,7 @@ HowToScene.prototype.draw=function(){
   ctx.textAlign="left";
   ctx.font="bold 16px Arial";ctx.fillStyle="rgb(180,30,30)";ctx.fillText("УПРАВЛЕНИЕ",15,75);
   ctx.font="15px Arial";ctx.fillStyle="rgb(0,0,0)";
-  const ctrls=["A / D / Ф / В — движение","W / Ц / Стрелка вверх — прыжок","W в воздухе — второй прыжок (со способностью)","K или R — способность «двойной прыжок»","       (5 сек, перезарядка 15 сек)","ESC — пауза","ПРОБЕЛ — рестарт после проигрыша"];
+  const ctrls=["A / D / W — управление","W в воздухе — второй прыжок (со способностью)","R — способность «двойной прыжок»","       (5 сек, перезарядка 15 сек)","ESC — пауза","ПРОБЕЛ — рестарт после проигрыша"];
   let y=100;for(const s of ctrls){ctx.fillText(s,18,y);y+=20;}
   ctx.font="bold 16px Arial";ctx.fillStyle="rgb(180,30,30)";ctx.fillText("ПЛАТФОРМЫ",15,250);
   ctx.font="15px Arial";ctx.fillStyle="rgb(0,0,0)";
