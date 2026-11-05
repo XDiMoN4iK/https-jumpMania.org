@@ -44,7 +44,6 @@ const SPIKE_START_SCORE=5000, SPIKE_H=13, MAX_RESPAWNS=3;
 const FREEZE_REPLACE_START_SCORE=5000, FREEZE_REPLACE_CHANCE=0.08, SPRING_CHANCE=0.07;
 const INFINITE_FREEZE_CHANCE=0.18, FLAT_DANGER_CHANCE=0.03, FLAT_SPIKE_CHANCE=0.05;
 const SPRING_HIT_PAD=10;
-const MAX_REACH_X=210; // горизонтальная достижимость (px между центрами)
 
 /* ======================== УТИЛИТЫ ======================== */
 const rand=(a,b)=>a+Math.random()*(b-a);
@@ -74,9 +73,22 @@ function outlinedText(text,x,y,color,outline,font="20px Arial"){
   for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++)if(dx||dy)ctx.fillText(text,x+dx,y+dy);
   ctx.fillStyle=color;ctx.fillText(text,x,y);
 }
-function pickReachableX(anchorCenterX, maxDist=MAX_REACH_X) {
-  const minC = Math.max(35, anchorCenterX - maxDist);
-  const maxC = Math.min(W - 35, anchorCenterX + maxDist);
+
+/* Формула максимальной горизонтальной достижимости от вертикального разрыва */
+function maxReachForGap(vGap) {
+  // vy=-13, gravity=0.5/frame. Height(n) = 0.25n² - 12.75n. Peak=162.5.
+  if (vGap <= 0) return 200;
+  if (vGap >= 160) return 110;
+  const disc = 162.5625 - vGap;
+  if (disc < 0) return 110;
+  const n2 = (12.75 + Math.sqrt(disc)) / 0.5;
+  const maxHoriz = n2 * 5;
+  return Math.max(90, Math.min(200, maxHoriz * 0.80));
+}
+function pickReachableX(anchorCenterX, vGap) {
+  const maxR = maxReachForGap(vGap);
+  const minC = Math.max(35, anchorCenterX - maxR);
+  const maxC = Math.min(W - 35, anchorCenterX + maxR);
   const newCenter = randInt(minC, maxC);
   return Math.max(0, Math.min(W - 70, newCenter - 35));
 }
@@ -96,67 +108,57 @@ const saveMinigameHS=(m,v)=>{if(MG_KEY[m])saveInt(MG_KEY[m],v);};
 let _stars=null;
 function getStars(){if(!_stars){_stars=[];for(let i=0;i<70;i++)_stars.push({x:randInt(0,W),y:randInt(0,H),r:choice([1,1,1,2])});}return _stars;}
 
-let _sunHaloCache=null;
-function getSunHalo(){
-  if(!_sunHaloCache){
-    _sunHaloCache=document.createElement("canvas");
-    _sunHaloCache.width=110;_sunHaloCache.height=110;
-    const g=_sunHaloCache.getContext("2d");
-    for(let i=20;i>0;i--){
-      const r=55*i/20, a=(4+6*(20-i)/20)/255;
-      g.fillStyle=`rgba(255,220,100,${a})`;
-      g.beginPath();g.arc(55,55,r,0,Math.PI*2);g.fill();
-    }
+let _sunSpriteCache=null;
+function getSunSprite(){
+  if(_sunSpriteCache)return _sunSpriteCache;
+  const size=110,cx=size/2,cy=size/2;
+  _sunSpriteCache=document.createElement("canvas");
+  _sunSpriteCache.width=size;_sunSpriteCache.height=size;
+  const g=_sunSpriteCache.getContext("2d");
+  // Гало
+  for(let i=20;i>0;i--){
+    const r=55*i/20,a=(4+6*(20-i)/20)/255;
+    g.fillStyle=`rgba(255,220,100,${a})`;
+    g.beginPath();g.arc(cx,cy,r,0,Math.PI*2);g.fill();
   }
-  return _sunHaloCache;
+  // Лучи (фиксированный угол)
+  g.strokeStyle="rgb(255,210,80)";g.lineWidth=3;
+  for(let i=0;i<12;i++){
+    const a=i*(Math.PI*2/12);
+    g.beginPath();
+    g.moveTo(cx+Math.cos(a)*30,cy+Math.sin(a)*30);
+    g.lineTo(cx+Math.cos(a)*42,cy+Math.sin(a)*42);
+    g.stroke();
+  }
+  // Центр
+  g.fillStyle="rgb(255,200,60)";
+  g.beginPath();g.arc(cx,cy,22,0,Math.PI*2);g.fill();
+  g.fillStyle="rgb(255,230,110)";
+  g.beginPath();g.arc(cx-4,cy-4,16,0,Math.PI*2);g.fill();
+  return _sunSpriteCache;
 }
+function drawSun(){ctx.drawImage(getSunSprite(),W-52-55,52-55);}
 
-let _moonHaloCache=null, _moonHaloDimCache=null;
 function _renderMoonHalo(dim){
-  const R=240, size=R*2;
+  const R=240,size=R*2;
   const c=document.createElement("canvas");
   c.width=size;c.height=size;
   const g=c.getContext("2d");
   for(let i=28;i>0;i--){
     const r=R*i/28;
     let a=(2+3*((28-i)>>1))/255;
-    if(dim) a*=0.3;
+    if(dim) a*=0.15;
     g.fillStyle=`rgba(200,215,245,${a})`;
     g.beginPath();g.arc(R,R,r,0,Math.PI*2);g.fill();
   }
   return c;
 }
-
-let _darkGradCache=null;
-function getDarkGradient(){
-  if(!_darkGradCache){
-    const size=400;
-    _darkGradCache=document.createElement("canvas");
-    _darkGradCache.width=size;_darkGradCache.height=size;
-    const g=_darkGradCache.getContext("2d");
-    const grd=g.createRadialGradient(size/2,size/2,size*0.25,size/2,size/2,size/2);
-    grd.addColorStop(0,"rgba(0,0,0,0)");
-    grd.addColorStop(0.7,"rgba(0,0,0,0.5)");
-    grd.addColorStop(1,"rgba(0,0,0,0.93)");
-    g.beginPath();g.arc(size/2,size/2,size/2,0,Math.PI*2);g.clip();
-    g.fillStyle=grd;g.fillRect(0,0,size,size);
-  }
-  return _darkGradCache;
-}
-
-/* ======================== ФОН ======================== */
-function drawSun(){
-  const cx=W-52,cy=52,t=now()*0.001;
-  for(let i=0;i<12;i++){const a=t*0.6+i*(Math.PI*2/12);line(cx+Math.cos(a)*30,cy+Math.sin(a)*30,cx+Math.cos(a)*42,cy+Math.sin(a)*42,"rgb(255,210,80)",3);}
-  ctx.drawImage(getSunHalo(),cx-55,cy-55);
-  circle(cx,cy,22,"rgb(255,200,60)");circle(cx-4,cy-4,16,"rgb(255,230,110)");
-}
+let _moonHaloCache=null, _moonHaloDimCache=null;
 function drawMoon(dim){
   const cx=W-52,cy=52;
   if(!_moonHaloCache)_moonHaloCache=_renderMoonHalo(false);
   if(!_moonHaloDimCache)_moonHaloDimCache=_renderMoonHalo(true);
-  const cache=dim?_moonHaloDimCache:_moonHaloCache;
-  ctx.drawImage(cache,cx-240,cy-240);
+  ctx.drawImage(dim?_moonHaloDimCache:_moonHaloCache,cx-240,cy-240);
   circle(cx,cy,22,"rgb(235,235,215)");circle(cx-5,cy-4,16,"rgb(255,255,240)");
   circle(cx+7,cy+3,4,"rgb(200,200,180)");circle(cx-8,cy+5,3,"rgb(205,205,185)");circle(cx+2,cy-8,2,"rgb(210,210,190)");
 }
@@ -166,11 +168,71 @@ function drawStarField(stars,t){
     const tw=0.6+0.4*Math.sin(t*1.5+i);
     const a=clamp(120+120*tw,0,255)|0;
     ctx.fillStyle=`rgb(${a},${a},${Math.min(255,a+40)})`;
-    if(s.r===1)ctx.fillRect(s.x,s.y,1,1);
-    else{ctx.beginPath();ctx.arc(s.x,s.y,s.r,0,Math.PI*2);ctx.fill();}
+    ctx.fillRect(s.x,s.y,s.r,s.r);
   }
 }
 function drawDarkBg(){ctx.fillStyle="rgb(10,12,26)";ctx.fillRect(0,0,W,H);drawStarField(getStars(),now()*0.001);drawMoon(true);}
+
+let _darkGradCache=null;
+function getDarkGradient(){
+  if(_darkGradCache)return _darkGradCache;
+  const size=400;
+  _darkGradCache=document.createElement("canvas");
+  _darkGradCache.width=size;_darkGradCache.height=size;
+  const g=_darkGradCache.getContext("2d");
+  const grd=g.createRadialGradient(size/2,size/2,size*0.25,size/2,size/2,size/2);
+  grd.addColorStop(0,"rgba(0,0,0,0)");
+  grd.addColorStop(0.7,"rgba(0,0,0,0.5)");
+  grd.addColorStop(1,"rgba(0,0,0,0.93)");
+  g.beginPath();g.arc(size/2,size/2,size/2,0,Math.PI*2);g.clip();
+  g.fillStyle=grd;g.fillRect(0,0,size,size);
+  return _darkGradCache;
+}
+
+let _dangerGlowCache=null;
+function getDangerGlowSprite(){
+  if(_dangerGlowCache)return _dangerGlowCache;
+  const size=140;
+  _dangerGlowCache=document.createElement("canvas");
+  _dangerGlowCache.width=size;_dangerGlowCache.height=size;
+  const g=_dangerGlowCache.getContext("2d");
+  const grd=g.createRadialGradient(size/2,size/2,0,size/2,size/2,size/2);
+  grd.addColorStop(0,"rgba(150,220,255,0.22)");
+  grd.addColorStop(0.6,"rgba(130,200,240,0.08)");
+  grd.addColorStop(1,"rgba(150,220,255,0)");
+  g.fillStyle=grd;
+  g.fillRect(0,0,size,size);
+  return _dangerGlowCache;
+}
+
+// Кэш "земляной" платформы по ширине
+const _groundCache=new Map();
+function getGroundSprite(width){
+  if(_groundCache.has(width))return _groundCache.get(width);
+  const c=document.createElement("canvas");
+  c.width=width;c.height=15;
+  const g=c.getContext("2d");
+  g.fillStyle="rgb(115,75,45)";g.fillRect(0,0,width,15);
+  g.fillStyle="rgb(60,195,60)";g.fillRect(0,0,width,7);
+  g.strokeStyle="rgb(35,130,35)";g.lineWidth=1;
+  g.beginPath();g.moveTo(2,7);g.lineTo(width-2,7);g.stroke();
+  g.strokeStyle="rgb(90,230,90)";
+  for(let i=0;i<width;i+=5){
+    const bx=i+2;
+    const gh=2+(Math.floor(i/5)%3);
+    g.beginPath();g.moveTo(bx,1);g.lineTo(bx,1-gh);g.stroke();
+  }
+  g.fillStyle="rgb(90,55,30)";
+  for(let i=0;i<width;i+=12){
+    const dx=i+6;
+    const dy=10+(Math.floor(i/12)%2);
+    g.fillRect(dx,dy,3,2);
+  }
+  _groundCache.set(width,c);
+  return c;
+}
+
+/* ======================== ОБЛАКА, СНЕЖИНКИ, ИКОНКИ ======================== */
 function drawCloudShape(x,y,w,h,c){
   const puffs=[[w*0.15,h*0.65,h*0.45],[w*0.35,h*0.40,h*0.55],[w*0.55,h*0.30,h*0.65],[w*0.75,h*0.40,h*0.55],[w*0.90,h*0.65,h*0.45],[w*0.25,h*0.55,h*0.55],[w*0.65,h*0.55,h*0.55]];
   ctx.fillStyle=c;ctx.fillRect(x+4,y+h/2,w-8,h/2);
@@ -381,11 +443,7 @@ class Platform{
     }
   }
   drawGround(){
-    fillRect(this.x,this.y,this.w,this.h,"rgb(115,75,45)");
-    fillRect(this.x,this.y,this.w,7,"rgb(60,195,60)");
-    line(this.x+2,this.y+7,this.x+this.w-2,this.y+7,"rgb(35,130,35)",1);
-    for(let i=0;i<this.w;i+=5){const bx=this.x+i+2,gh=2+((i/5|0)%3);line(bx,this.y+1,bx,this.y+1-gh,"rgb(90,230,90)",1);}
-    for(let i=0;i<this.w;i+=12){const dx=this.x+i+6,dy=this.y+10+((i/12|0)%2);fillRect(dx,dy,3,2,"rgb(90,55,30)");}
+    ctx.drawImage(getGroundSprite(this.w),this.x,this.y);
   }
   drawSpring(){
     const sx=this.x+this.springX,cx=sx+this.springW/2;
@@ -596,7 +654,7 @@ class Frog{
     }else if(this.deathKind==="fall"){this.knockbackVy+=0.8*dt/16;this.y+=this.knockbackVy*dt/16;}
   }
   drawBody(x,y,w,h){
-    // Задние лапы (крупнее, темнее, за телом)
+    // Задние лапы
     ctx.fillStyle="rgb(25,130,25)";
     ctx.beginPath();ctx.ellipse(x+5,y+h-3,6,4,0,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.ellipse(x+w-5,y+h-3,6,4,0,0,Math.PI*2);ctx.fill();
@@ -615,11 +673,11 @@ class Frog{
     circle(x+w-9,y+5,2,"rgb(0,0,0)");
     circle(x+10,y+4,1,"rgb(255,255,255)");
     circle(x+w-8,y+4,1,"rgb(255,255,255)");
-    // Передние лапы (меньше, светлее, спереди)
+    // Передние лапы
     ctx.fillStyle="rgb(50,180,50)";
     ctx.beginPath();ctx.ellipse(x+10,y+h-1,4,2,0,0,Math.PI*2);ctx.fill();
     ctx.beginPath();ctx.ellipse(x+w-10,y+h-1,4,2,0,0,Math.PI*2);ctx.fill();
-    // Улыбка (плоская, не полукруг)
+    // Улыбка плоская
     ctx.strokeStyle="rgb(20,90,20)";ctx.lineWidth=2;
     ctx.beginPath();
     ctx.moveTo(x+w/2-7, y+17);
@@ -665,7 +723,6 @@ class Frog{
     }
     if(this.freezeTimer>0){
       const inten=Math.min(1,this.freezeTimer/1000);
-      // Лёд — симметрично вокруг лягушки (с запасом на лапы)
       ctx.fillStyle=`rgba(190,230,255,${0.55*inten})`;
       roundRectPath(x-4,y-3,w+8,h+5,6);ctx.fill();
       ctx.strokeStyle="rgb(200,235,255)";ctx.lineWidth=2;
@@ -845,12 +902,19 @@ RunScene.prototype.init=function(){
   this.nextGapReduced=false;this.nextMustBeNormal=false;
 
   const self=this;
-  this.addWithCloudSupport=function(x,y,type){
+  this.spawnInit=function(x,y,type,anchorC){
     if(type==="moving"){
       const need=MOVING_RANGE_MAX,avail=W-70;
       if(avail<2*need)self.platforms.push(new Platform(x,y,"normal"));
       else{
-        const base=randInt(need,avail-need),mr=randInt(MOVING_RANGE_MIN,MOVING_RANGE_MAX);
+        // baseX должен быть в пределах достижимости от anchorC
+        const maxR = anchorC!==undefined ? maxReachForGap(70) : 200;
+        const minB = Math.max(need, anchorC-maxR-35+need);
+        const maxB = Math.min(avail-need, anchorC+maxR-35-need);
+        let base;
+        if(minB <= maxB) base = randInt(minB, maxB);
+        else base = Math.max(need, Math.min(avail-need, Math.round(anchorC-35)));
+        const mr=randInt(MOVING_RANGE_MIN,Math.min(MOVING_RANGE_MAX,base,avail-base));
         const np=new Platform(x,y,"moving",movingSpeedMult(self.score));
         np.baseX=base;np.moveRange=mr;
         np.movePhase=choice([Math.PI*0.3,Math.PI*0.7,Math.PI*1.3,Math.PI*1.7]);
@@ -858,7 +922,18 @@ RunScene.prototype.init=function(){
         self.platforms.push(np);
       }
     }else self.platforms.push(new Platform(x,y,type));
-    if(type==="cloud"){
+    if(type==="cloud"&&anchorC!==undefined){
+      const maxR = maxReachForGap(70);
+      for(const off of [90,-90,45,-45]){
+        const sx=x+off;
+        if(sx<0||sx+70>W)continue;
+        const supC=sx+35;
+        if(Math.abs(supC-anchorC)<=maxR){
+          self.platforms.push(new Platform(sx,y,"normal"));
+          break;
+        }
+      }
+    }else if(type==="cloud"){
       let sx=x+90;if(sx+70>W)sx=x-90;if(sx<0)sx=0;
       self.platforms.push(new Platform(sx,y,"normal"));
     }
@@ -884,34 +959,14 @@ RunScene.prototype.init=function(){
     }
   };
 
-  // Вспомогательный spawn с учётом горизонтальной достижимости
-  const spawnInit=function(x,y,type){
-    if(type==="moving"){
-      const need=MOVING_RANGE_MAX,avail=W-70;
-      if(avail<2*need)self.platforms.push(new Platform(x,y,"normal"));
-      else{
-        const base=randInt(need,avail-need),mr=randInt(MOVING_RANGE_MIN,MOVING_RANGE_MAX);
-        const np=new Platform(x,y,"moving",movingSpeedMult(0));
-        np.baseX=base;np.moveRange=mr;
-        np.movePhase=choice([Math.PI*0.3,Math.PI*0.7,Math.PI*1.3,Math.PI*1.7]);
-        const f=triangleFrac(np.movePhase);np.x=np.baseX+(f*2-1)*np.moveRange;np.prevX=np.x;
-        self.platforms.push(np);
-      }
-    }else self.platforms.push(new Platform(x,y,type));
-    if(type==="cloud"){
-      let sx=x+90;if(sx+70>W)sx=x-90;if(sx<0)sx=0;
-      self.platforms.push(new Platform(sx,y,"normal"));
-    }
-  };
-
   const addTutorialFill=()=>{
-    let prevC = W/2; // платформа-туториал центрирована
+    let prevC=W/2;
     for(let i=0;i<7;i++){
       const y=H-310-i*70;
-      const x=pickReachableX(prevC);
+      const x=pickReachableX(prevC, 70);
       prevC=x+35;
       const [type]=self.randomType();
-      spawnInit(x,y,type);
+      self.spawnInit(x,y,type,prevC);
     }
   };
   if(this.tBrk){
@@ -919,7 +974,7 @@ RunScene.prototype.init=function(){
     let prevC=W/2;
     for(let i=0;i<7;i++){
       const y=H-310-i*70;
-      const x=pickReachableX(prevC);
+      const x=pickReachableX(prevC, 70);
       prevC=x+35;
       const type=Math.random()<this.breakChance?"break":"normal";
       this.platforms.push(new Platform(x,y,type));
@@ -937,10 +992,10 @@ RunScene.prototype.init=function(){
   }else if(this.tFreeze){
     this.platforms.push(new Platform(W/2-35,H-230,"freeze"));addTutorialFill();
   }else if(this.tDanger){
-    this.platforms.push(new Platform(W/2-35,H-230,"danger"));
-    const opts=[];const l=W/2-35-90;if(l>=0)opts.push(l);const r=W/2-35+160;if(r+70<=W)opts.push(r);
-    const sx=opts.length?choice(opts):Math.max(0,Math.min(W-70,W/2-35+90));
-    this.platforms.push(new Platform(sx,H-230,"normal"));addTutorialFill();
+    // Danger слева, safe прямо над стартом
+    this.platforms.push(new Platform(0,H-230,"danger"));
+    this.platforms.push(new Platform(W/2-35,H-230,"normal"));
+    addTutorialFill();
   }else if(this.tMoving){
     const base=(W-70)/2;
     const mp=new Platform(base,H-230,"moving",1.0);
@@ -948,18 +1003,18 @@ RunScene.prototype.init=function(){
     const f=triangleFrac(mp.movePhase);mp.x=mp.baseX+(f*2-1)*mp.moveRange;mp.prevX=mp.x;
     this.platforms.push(mp);addTutorialFill();
   }else if(this.tSpike){
-    this.platforms.push(new Platform(W/2-35,H-230,"spike"));
-    const opts=[];const l=W/2-35-90;if(l>=0)opts.push(l);const r=W/2-35+160;if(r+70<=W)opts.push(r);
-    const sx=opts.length?choice(opts):Math.max(0,Math.min(W-70,W/2-35+90));
-    this.platforms.push(new Platform(sx,H-230,"normal"));addTutorialFill();
+    // Spike слева, safe прямо над стартом
+    this.platforms.push(new Platform(0,H-230,"spike"));
+    this.platforms.push(new Platform(W/2-35,H-230,"normal"));
+    addTutorialFill();
   }else{
     let prevC=W/2;
     for(let i=0;i<8;i++){
       const y=H-180-i*70;
-      const x=pickReachableX(prevC);
+      const x=pickReachableX(prevC, 70);
       prevC=x+35;
       const [type]=this.randomType();
-      spawnInit(x,y,type);
+      this.spawnInit(x,y,type,prevC);
     }
   }
 
@@ -1002,14 +1057,14 @@ RunScene.prototype.spawnLevelPlatform=function(top){
   if(this.nextGapReduced){mn=Math.floor(mn*0.45);mx=Math.floor(mx*0.55);mx=Math.min(mx,50);mn=Math.min(mn,mx-5);this.nextGapReduced=false;}
   const padX=40,padY=40;
   const fr={x:this.finishPlat.x-padX,y:this.finishPlat.y-padY,w:this.finishPlat.w+2*padX,h:this.finishPlat.h+2*padY};
-  // Найти anchor для горизонтального ограничения
   let anchor=null;
   for(const p of this.platforms){if(p.type==="finish"||p.broken)continue;if(!anchor||p.y<anchor.y)anchor=p;}
   const anchorC=anchor?anchor.x+anchor.w/2:W/2;
   for(let k=0;k<30;k++){
-    const y=top-randInt(mn,mx);
+    const vGap=randInt(mn,mx);
+    const y=top-vGap;
     if(y<=this.finishPlat.y+padY)return top;
-    let x=pickReachableX(anchorC);
+    let x=pickReachableX(anchorC, vGap);
     if(x<fr.x+fr.w&&x+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y){
       const lm=fr.x-70,rm=fr.x+fr.w,opts=[];
       if(lm>=0)opts.push([0,lm]);if(rm<=W-70)opts.push([rm,W-70]);
@@ -1022,16 +1077,38 @@ RunScene.prototype.spawnLevelPlatform=function(top){
     let mr=null,mb=null;
     if(type==="moving"){
       const need=MOVING_RANGE_MAX,avail=W-70;
-      if(avail<2*need)type="normal";else{mb=randInt(need,avail-need);mr=randInt(MOVING_RANGE_MIN,MOVING_RANGE_MAX);}
+      if(avail<2*need)type="normal";
+      else{
+        const maxR=maxReachForGap(vGap);
+        const minB=Math.max(need, anchorC-maxR-35+need);
+        const maxB=Math.min(avail-need, anchorC+maxR-35-need);
+        if(minB<=maxB){mb=randInt(minB,maxB);mr=randInt(MOVING_RANGE_MIN,Math.min(MOVING_RANGE_MAX,mb,avail-mb));}
+        else type="normal";
+      }
     }
     const np=new Platform(x,y,type,movingSpeedMult(this.score));
     if(type==="moving"){np.baseX=mb;np.moveRange=mr;np.movePhase=choice([Math.PI*0.3,Math.PI*0.7,Math.PI*1.3,Math.PI*1.7]);const f=triangleFrac(np.movePhase);np.x=np.baseX+(f*2-1)*np.moveRange;np.prevX=np.x;}
     this.platforms.push(np);
     if(wasReplace){this.nextGapReduced=true;this.nextMustBeNormal=true;}
     if(type==="cloud"){
-      let sx=x+90;if(sx+70>W)sx=x-90;if(sx<0)sx=0;
-      if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y))this.platforms.push(new Platform(sx,y,"normal"));
-      else{let ax=x-90;if(ax<0)ax=0;if(!(ax<fr.x+fr.w&&ax+70>fr.x))this.platforms.push(new Platform(ax,y,"normal"));}
+      const maxR=maxReachForGap(vGap);
+      let supportAdded=false;
+      for(const off of [90,-90,45,-45]){
+        const sx=x+off;
+        if(sx<0||sx+70>W)continue;
+        const supC=sx+35;
+        if(Math.abs(supC-anchorC)<=maxR){
+          if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y)){
+            this.platforms.push(new Platform(sx,y,"normal"));
+            supportAdded=true;
+            break;
+          }
+        }
+      }
+      if(!supportAdded){
+        let sx=x+90;if(sx+70>W)sx=x-90;if(sx<0)sx=0;
+        if(!(sx<fr.x+fr.w&&sx+70>fr.x&&y<fr.y+fr.h&&y+15>fr.y))this.platforms.push(new Platform(sx,y,"normal"));
+      }
     }
     // freeze
     const doFrz=this.infiniteMode?(this.score>=2000&&Math.random()<0.18):(this.freezeChance>0&&Math.random()<this.freezeChance);
@@ -1314,15 +1391,25 @@ RunScene.prototype.draw=function(){
     ctx.fillStyle="rgba(170,210,245,0.95)";ctx.fillRect(0,0,W,H);drawSun();
     showText("ВОЗРОЖДЕНИЕ",W/2,165,"rgb(30,115,40)","32px Arial");
     showText(`Ваш счет: ${this.score} м`,W/2,215,"rgb(0,0,0)","20px Arial");
-    showText(`Лучший рекорд: ${Math.max(highScore,this.score)} м`,W/2,250,"rgb(255,165,0)","20px Arial");
-    showText("Хотите ли возродиться?",W/2,290,"rgb(0,0,0)","20px Arial");
-    const bw=240,bx=W/2-bw/2,by=320,bh=18;
-    fillRect(bx,by,bw,bh,"rgb(200,200,200)");
-    fillRect(bx,by,Math.floor(bw*(this.respawnTimeLeft/5)),bh,"rgb(70,170,90)");
-    strokeRect(bx,by,bw,bh,"rgb(0,0,0)",2);
-    showText(`${this.respawnTimeLeft.toFixed(1)} сек`,W/2,353,"rgb(0,0,0)","20px Arial");
+    let barY, secY, btnY, freeY;
+    if(this.levelNum===0){
+      // Бесконечный — оставляем рекорд
+      showText(`Лучший рекорд: ${Math.max(highScore,this.score)} м`,W/2,250,"rgb(255,165,0)","20px Arial");
+      showText("Хотите ли возродиться?",W/2,290,"rgb(0,0,0)","20px Arial");
+      barY=320; secY=353; btnY=400; freeY=435;
+    }else{
+      // Уровни — без рекорда, компактнее
+      showText("Хотите ли возродиться?",W/2,255,"rgb(0,0,0)","20px Arial");
+      barY=285; secY=318; btnY=365; freeY=400;
+    }
+    const bw=240,bx=W/2-bw/2,bh=18;
+    fillRect(bx,barY,bw,bh,"rgb(200,200,200)");
+    fillRect(bx,barY,Math.floor(bw*(this.respawnTimeLeft/5)),bh,"rgb(70,170,90)");
+    strokeRect(bx,barY,bw,bh,"rgb(0,0,0)",2);
+    showText(`${this.respawnTimeLeft.toFixed(1)} сек`,W/2,secY,"rgb(0,0,0)","20px Arial");
+    this.respawnButton.y=btnY-this.respawnButton.h/2;
     this.respawnButton.draw("22px Arial");
-    showText("пока что..",W/2,435,"rgb(230,230,230)","13px Arial");
+    showText("пока что..",W/2,freeY,"rgb(230,230,230)","13px Arial");
     showText("ESC — пропустить",W/2,H-40,"rgb(80,80,80)","20px Arial");
   }
   if(this.state==="gameover"){
@@ -1382,7 +1469,7 @@ MinigameScene.prototype.init=function(){
   let prevC=W/2;
   for(let i=0;i<8;i++){
     const y=H-180-i*70;
-    const x=pickReachableX(prevC);
+    const x=pickReachableX(prevC, 70);
     prevC=x+35;
     this.platforms.push(new Platform(x,y,"normal"));
   }
@@ -1426,8 +1513,9 @@ MinigameScene.prototype.spawnPlat=function(){
     mn=Math.min(mn,mx-5);
     this.nextGapReduced=false;
   }
-  const y=top-randInt(mn,mx);
-  const x=pickReachableX(anchorC);
+  const vGap=randInt(mn,mx);
+  const y=top-vGap;
+  const x=pickReachableX(anchorC, vGap);
 
   let type="normal",wasReplace=false;
   if(this.nextMustBeNormal){
@@ -1443,11 +1531,14 @@ MinigameScene.prototype.spawnPlat=function(){
 
   let mb=null,mr=null;
   if(type==="moving"){
-    mb=randInt(0,W-70);
-    const maxLeft=mb,maxRight=(W-70)-mb;
-    const maxMr=Math.min(maxLeft,maxRight);
-    if(maxMr<MOVING_RANGE_MIN)type="normal";
-    else mr=randInt(MOVING_RANGE_MIN,maxMr);
+    const maxR=maxReachForGap(vGap);
+    const minB=Math.max(MOVING_RANGE_MAX, anchorC-maxR-35+MOVING_RANGE_MAX);
+    const maxB=Math.min((W-70)-MOVING_RANGE_MAX, anchorC+maxR-35-MOVING_RANGE_MAX);
+    if(minB<=maxB){
+      mb=randInt(minB,maxB);
+      const maxMr=Math.min(MOVING_RANGE_MAX,mb,(W-70)-mb);
+      mr=randInt(MOVING_RANGE_MIN,maxMr);
+    }else type="normal";
   }
 
   const np=new Platform(x,y,type,movingSpeedMult(this.score));
@@ -1746,25 +1837,36 @@ MinigameScene.prototype._drawWorld=function(){
     for(let i=0;i<12;i++){const bx=(i*53+Math.floor(tt*30))%W;const by=top+10+Math.floor(8*Math.sin(tt*2+i));circle(bx,by,3,"rgba(255,200,80,0.78)");}
   }
   if(this.isDark){
+    // 1. Основная темнота через 4 прямоугольника (без evenodd)
     const fuel=clamp(this.frog.lampFuelSeconds/MG_DARK_FUEL_SECONDS,0,1);
     if(fuel>0){
       const [lcx,lcy]=this.frog.getLampPos();
       const radius=MG_DARK_MIN_RADIUS+(MG_DARK_FUEL_FULL_RADIUS-MG_DARK_MIN_RADIUS)*fuel;
       const t=now()*0.004;
       const rw=radius*(1+0.035*Math.sin(t*1.6));
-      // Кэшированный градиент (FPS)
+      // Градиент лампы (кэшированный)
       ctx.drawImage(getDarkGradient(),lcx-rw,lcy-rw,rw*2,rw*2);
-      // Затемняем всё, что вне круга
-      ctx.beginPath();
-      ctx.rect(0,0,W,H);
-      ctx.arc(lcx,lcy,rw,0,Math.PI*2,true);
-      ctx.fillStyle="rgba(0,0,0,0.93)";
-      ctx.fill("evenodd");
+      // Тёмные прямоугольники вокруг квадрата лампы
+      const darkCol="rgba(0,0,0,0.93)";
+      ctx.fillStyle=darkCol;
+      if(lcy-rw>0) ctx.fillRect(0,0,W,lcy-rw);
+      if(lcy+rw<H) ctx.fillRect(0,lcy+rw,W,H-(lcy+rw));
+      if(lcx-rw>0) ctx.fillRect(0,Math.max(0,lcy-rw),lcx-rw,Math.min(H,rw*2));
+      if(lcx+rw<W) ctx.fillRect(lcx+rw,Math.max(0,lcy-rw),W-(lcx+rw),Math.min(H,rw*2));
     }else{
       ctx.fillStyle="rgba(0,0,0,0.96)";ctx.fillRect(0,0,W,H);
     }
+    // 2. Звёзды и луна
     drawStarField(getStars(),now()*0.001);
     drawMoon(true);
+    // 3. Слабый свет вокруг электрических платформ (поверх темноты)
+    const glow=getDangerGlowSprite();
+    for(const p of this.platforms){
+      if(p.type==="danger"&&!p.broken){
+        const cx=p.x+p.w/2,cy=p.y+p.h/2;
+        ctx.drawImage(glow,cx-70,cy-70);
+      }
+    }
   }
 };
 
@@ -1946,7 +2048,7 @@ function updateMain(dt){
   sc.update(dt);
 }
 
-/* ======================== ГЛАВНЫЙ ЦИКЛ — ФИКСИРОВАННЫЙ 60 FPS ======================== */
+/* ======================== ГЛАВНЫЙ ЦИКЛ ======================== */
 const FRAME_MS = 1000/60;
 let _lastTime = 0;
 let _accum = 0;
